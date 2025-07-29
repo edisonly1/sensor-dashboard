@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 # Load data
-df = pd.read_csv("Downloads/LiFo_05_13_2025__13_17.csv")
+df = pd.read_csv("LiFo_05_13_2025__13_17.csv")
 df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
 # Convert numeric columns
