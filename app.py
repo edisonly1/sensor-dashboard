@@ -109,4 +109,44 @@ plot_df = pd.melt(
     var_name='Variable',
     value_name='% Change'
 )
-plot_df['Variable'] = plot_df['Variable'].str.replace('_smoothed', '').str_
+
+if plot_df.empty:
+    st.warning("No data available to plot after filtering and smoothing.")
+    st.stop()
+
+# Clean variable names safely
+plot_df['Variable'] = plot_df['Variable'].astype(str)
+plot_df['Variable'] = (
+    plot_df['Variable']
+    .str.replace('_smoothed', '', regex=False)
+    .str.replace('_', ' ', regex=False)
+    .str.title()
+)
+
+# --- Dashboard Title ---
+st.title("📊 Sensor Data Dashboard")
+st.markdown("""
+This dashboard visualizes smoothed percent changes in environmental and neutron count data.
+Use the sidebar to filter date range, select variables, adjust smoothing, and upload your own data.
+""")
+
+# --- Plot ---
+fig = px.line(
+    plot_df,
+    x='Timestamp',
+    y='% Change',
+    color='Variable',
+    color_discrete_map={
+        'Temperature': '#e74c3c',
+        'Humidity': '#8e44ad',
+        'Pressure': '#3498db',
+        'Counts Avg': '#27ae60'
+    }
+)
+fig.update_layout(title='Smoothed % Change Over Time')
+fig.update_traces(line=dict(width=1), opacity=0.8)
+st.plotly_chart(fig, use_container_width=True)
+
+# --- Summary Statistics ---
+st.subheader("Summary Statistics")
+st.dataframe(df[variables].describe())
