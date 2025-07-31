@@ -129,7 +129,7 @@ plot_df['Variable'] = (
 )
 
 # --- Dashboard Title ---
-st.title("📊 Sensor Data Dashboard")
+st.title("Sensor Data Dashboard")
 st.markdown("""
 This dashboard visualizes smoothed percent changes in environmental and neutron count data.
 Use the sidebar to filter date range, select variables, adjust smoothing, and upload your own data.
