@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
 from datetime import timedelta
 
 st.set_page_config(page_title="Sensor Data Dashboard", layout="wide")
@@ -86,6 +88,9 @@ window = st.sidebar.slider(
     "Smoothing window (in points):", min_value=1, max_value=50, value=12
 )
 
+# --- Optional: Show Correlation Matrix ---
+show_corr = st.sidebar.checkbox("Show Correlation Matrix", value=False)
+
 # --- Filter by count threshold ---
 df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
 
@@ -124,7 +129,7 @@ plot_df['Variable'] = (
 )
 
 # --- Dashboard Title ---
-st.title("Sensor Data Dashboard")
+st.title("📊 Sensor Data Dashboard")
 st.markdown("""
 This dashboard visualizes smoothed percent changes in environmental and neutron count data.
 Use the sidebar to filter date range, select variables, adjust smoothing, and upload your own data.
@@ -150,3 +155,11 @@ st.plotly_chart(fig, use_container_width=True)
 # --- Summary Statistics ---
 st.subheader("Summary Statistics")
 st.dataframe(df[variables].describe())
+
+# --- Correlation Matrix Heatmap ---
+if show_corr:
+    st.subheader("📊 Correlation Matrix")
+    corr = df[variables].corr()
+    fig_corr, ax = plt.subplots(figsize=(6, 4))
+    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
+    st.pyplot(fig_corr)
