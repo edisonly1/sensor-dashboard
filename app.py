@@ -30,10 +30,9 @@ else:
 df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
 df = df.dropna(subset=['Timestamp'])
 
-cols = ['temperature', 'humidity', 'pressure', 'counts_0', 'counts_1']
-for col in cols:
-    df[col] = pd.to_numeric(df[col], errors='coerce')
-df = df.dropna(subset=cols)
+df['counts_0'] = pd.to_numeric(df['counts_0'], errors='coerce')
+df['counts_1'] = pd.to_numeric(df['counts_1'], errors='coerce')
+df = df.dropna(subset=['counts_0', 'counts_1'])
 
 df['counts_avg'] = (df['counts_0'] + df['counts_1']) / 2
 
@@ -52,53 +51,33 @@ else:
     st.error("Please select a valid start and end date.")
     st.stop()
 
-variables = st.sidebar.multiselect("Select variables to plot:", ['temperature', 'humidity', 'pressure', 'counts_avg'], default=['counts_avg'])
-if not variables:
-    st.warning("Please select at least one variable to plot.")
-    st.stop()
-
-scaling_factors = {
-    var: st.sidebar.number_input(f"Scale factor for {var.title()} (%)", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
-    for var in variables
-}
-
 threshold = st.sidebar.slider("Maximum count value to include:", min_value=0, max_value=150, value=100)
 window = st.sidebar.slider("Smoothing window (in points):", min_value=1, max_value=50, value=12)
+scale = st.sidebar.number_input("Scale factor for % Change", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
 plot_mode = st.sidebar.selectbox("Graph Mode", ["% Change (Smoothed)", "Raw Counts (Smoothed)", "Both"])
-show_corr = st.sidebar.checkbox("Show Correlation Matrix")
 detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
+show_corr = st.sidebar.checkbox("Show Correlation Matrix")
 
-# --- Filter and Smooth ---
+# --- Filter & Smooth ---
 df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
 if df.empty:
     st.warning("No data available for the selected filters.")
     st.stop()
 
-for col in variables:
-    mean = df[col].mean()
-    scale = scaling_factors[col]
-    df[f'{col}_pct'] = ((df[col] - mean) / mean * 100) * scale
-    df[f'{col}_smoothed'] = df[f'{col}_pct'].rolling(window=window).mean()
+# Compute % change
+mean = df['counts_avg'].mean()
+df['counts_avg_pct'] = ((df['counts_avg'] - mean) / mean * 100) * scale
+df['counts_avg_smoothed'] = df['counts_avg_pct'].rolling(window=window).mean()
+df['counts_avg_raw_smooth'] = df['counts_avg'].rolling(window=window).mean()
 
-# --- Prepare % Change Plot ---
-plot_df = pd.melt(
-    df,
-    id_vars='Timestamp',
-    value_vars=[f'{col}_smoothed' for col in variables],
-    var_name='Variable',
-    value_name='% Change'
-)
-if plot_df.empty:
-    st.warning("No data available to plot after smoothing.")
-    st.stop()
+# Prepare plot data
+plot_df = df[['Timestamp', 'counts_avg_smoothed']].dropna()
+plot_df.rename(columns={'counts_avg_smoothed': '% Change'}, inplace=True)
 
-plot_df['Variable'] = plot_df['Variable'].astype(str)
-plot_df['Variable'] = plot_df['Variable'].str.replace('_smoothed', '', regex=False).str.replace('_', ' ', regex=False).str.title()
-
-# --- Title & Explanation ---
-st.title("Sensor Data Dashboard")
+# --- Dashboard Title ---
+st.title("Neutron Count Dashboard – `counts_avg` Focused")
 st.markdown("""
-This dashboard visualizes both smoothed percent changes and raw counts from lithium-foil cosmic ray neutron sensors.
+This dashboard visualizes **smoothed percent change** and **raw counts** of the average neutron count (`counts_avg`) over time.
 """)
 
 if detect_anomalies:
@@ -120,24 +99,20 @@ Anomalies in neutron count behavior are identified using the **Isolation Forest 
 """)
 
 
-# --- Create % Change Figure ---
+
+# --- Create % Change Plot ---
 fig = px.line(
-    plot_df, x='Timestamp', y='% Change', color='Variable',
-    color_discrete_map={
-        'Temperature': '#e74c3c',
-        'Humidity': '#8e44ad',
-        'Pressure': '#3498db',
-        'Counts Avg': '#27ae60'
-    }
+    plot_df, x='Timestamp', y='% Change',
+    title="Smoothed % Change in Counts Avg",
+    labels={'% Change': 'Smoothed % Change (%)'}
 )
-fig.update_layout(title='Smoothed % Change Over Time')
 fig.update_traces(line=dict(width=1), opacity=0.8)
 
 # --- Anomaly Detection ---
-if detect_anomalies and 'counts_avg' in df.columns:
+if detect_anomalies:
     model = IsolationForest(contamination=0.02, random_state=42)
-    df_no_na = df[['counts_avg']].dropna()
-    df.loc[df_no_na.index, 'anomaly'] = model.fit_predict(df_no_na)
+    subset = df[['counts_avg']].dropna()
+    df.loc[subset.index, 'anomaly'] = model.fit_predict(subset)
     anomalies = df[df['anomaly'] == -1]
     if not anomalies.empty:
         fig.add_scatter(
@@ -155,29 +130,23 @@ if plot_mode in ["% Change (Smoothed)", "Both"]:
 
 if plot_mode in ["Raw Counts (Smoothed)", "Both"]:
     st.subheader("Raw Counts (Smoothed)")
-    raw_fig = px.line()
-    for col in ['counts_0', 'counts_1', 'counts_avg']:
-        if col in df.columns:
-            df[f'{col}_smooth'] = df[col].rolling(window=window).mean()
-            label = "Counts 0" if col == "counts_0" else ("Counts 1" if col == "counts_1" else "Counts Avg")
-            raw_fig.add_scatter(
-                x=df['Timestamp'],
-                y=df[f'{col}_smooth'],
-                mode='lines',
-                name=label
-            )
-    raw_fig.update_layout(title="Smoothed Raw Neutron Counts", xaxis_title="Time", yaxis_title="Counts")
-    raw_fig.update_traces(line=dict(width=1), opacity=0.8)
-    st.plotly_chart(raw_fig, use_container_width=True)
+    fig2 = px.line(
+        df,
+        x='Timestamp',
+        y='counts_avg_raw_smooth',
+        title="Smoothed Raw Counts Avg",
+        labels={'counts_avg_raw_smooth': 'Smoothed Counts Avg'}
+    )
+    fig2.update_traces(line=dict(width=1), opacity=0.8)
+    st.plotly_chart(fig2, use_container_width=True)
 
-# --- Summary Stats ---
+# --- Summary Statistics ---
 st.subheader("Summary Statistics")
-st.dataframe(df[variables].describe())
+st.dataframe(df[['counts_avg']].describe())
 
 # --- Correlation Matrix ---
 if show_corr:
-    st.subheader("Correlation Matrix")
-    corr = df[variables].corr()
-    fig_corr, ax = plt.subplots(figsize=(6, 4))
-    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
-    st.pyplot(fig_corr)
+    st.subheader("Correlation Matrix (Single Variable)")
+    corr_fig, ax = plt.subplots(figsize=(4, 3))
+    sns.heatmap(df[['counts_avg']].corr(), annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
+    st.pyplot(corr_fig)
