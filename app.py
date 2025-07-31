@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.ensemble import IsolationForest
 from datetime import timedelta
 
 st.set_page_config(page_title="Sensor Data Dashboard", layout="wide")
@@ -88,8 +89,8 @@ window = st.sidebar.slider(
     "Smoothing window (in points):", min_value=1, max_value=50, value=12
 )
 
-# --- Optional: Show Correlation Matrix ---
-show_corr = st.sidebar.checkbox("Show Correlation Matrix", value=False)
+show_corr = st.sidebar.checkbox("Show Correlation Matrix")
+detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
 
 # --- Filter by count threshold ---
 df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
@@ -135,7 +136,7 @@ This dashboard visualizes smoothed percent changes in environmental and neutron 
 Use the sidebar to filter date range, select variables, adjust smoothing, and upload your own data.
 """)
 
-# --- Plot ---
+# --- Plot Line Chart ---
 fig = px.line(
     plot_df,
     x='Timestamp',
@@ -150,16 +151,37 @@ fig = px.line(
 )
 fig.update_layout(title='Smoothed % Change Over Time')
 fig.update_traces(line=dict(width=1), opacity=0.8)
+
+# --- Anomaly Detection ---
+if detect_anomalies:
+    if 'counts_avg' in df.columns and not df['counts_avg'].isna().all():
+        model = IsolationForest(contamination=0.02, random_state=42)
+        df_no_na = df[['counts_avg']].dropna()
+        df.loc[df_no_na.index, 'anomaly'] = model.fit_predict(df_no_na)
+        anomalies = df[df['anomaly'] == -1]
+
+        if not anomalies.empty:
+            fig.add_scatter(
+                x=anomalies['Timestamp'],
+                y=anomalies['counts_avg'],
+                mode='markers',
+                marker=dict(color='red', size=8, symbol='x'),
+                name='Anomaly'
+            )
+    else:
+        st.warning("Counts Avg data not available for anomaly detection.")
+
+# --- Display Plot ---
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Summary Statistics ---
 st.subheader("Summary Statistics")
 st.dataframe(df[variables].describe())
 
-# --- Correlation Matrix Heatmap ---
+# --- Correlation Matrix ---
 if show_corr:
     st.subheader("Correlation Matrix")
     corr = df[variables].corr()
-    fig_corr, ax = plt.subplots(figsize=(6, 4))
+    fig_corr, ax = plt.subplots(figsize=(4, 4))
     sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
     st.pyplot(fig_corr)
