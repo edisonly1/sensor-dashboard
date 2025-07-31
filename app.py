@@ -138,11 +138,11 @@ Use the sidebar to filter date range, select variables, adjust smoothing, and up
 
 if detect_anomalies:
     st.markdown("""
-### 🔴 Anomaly Detection Using Isolation Forest
+### Anomaly Detection Using Isolation Forest
 
 Anomalies in neutron count behavior are identified using the **Isolation Forest algorithm**, a machine learning model designed for unsupervised outlier detection. This model is particularly effective for **high-dimensional and noisy time series data**, such as environmental sensor outputs.
 
-#### 📌 How It Works:
+#### How It Works:
 - Isolation Forest works by randomly selecting features (e.g., `counts_avg`) and thresholds to construct **decision trees**.
 - The idea is that **anomalies are "few and different"** — meaning they are more easily isolated than typical data points.
 - Each point is assigned an **anomaly score** based on the average path length required to isolate it in the forest.
@@ -152,15 +152,6 @@ Anomalies in neutron count behavior are identified using the **Isolation Forest 
 - The model processes the average neutron count (`counts_avg`) over time.
 - It flags timestamps where the neutron count **suddenly drops or spikes** relative to the recent baseline distribution.
 - These events are marked with a **red ❌ on the graph**.
-
-#### 🚩 Possible Scientific Interpretations:
-- **Hydrological changes**: Sudden rainfall increases atmospheric water vapor and soil moisture, attenuating cosmic-ray-induced neutrons.
-- **Atmospheric events**: Pressure fronts or temperature drops can modulate count rates.
-- **Hardware noise**: Detector spikes due to power surges or shielding disturbances.
-- **Space weather effects**: Forbush decreases, solar particle events, or geomagnetic storms.
-
-This approach helps flag candidate events for further validation, including correlation with humidity, temperature, and precipitation data — directly supporting the goals of the **gLOWCOST project**.
-""")
 
 
 # --- Plot Line Chart ---
