@@ -91,10 +91,27 @@ for col in variables:
 # --- Dashboard Title ---
 st.title("Neutron Sensor Dashboard")
 st.markdown("Visualize neutron count & environment data trends, with anomaly detection and optional correlation analysis.")
+if detect_anomalies:
+    st.markdown("""
+### Anomaly Detection Using Isolation Forest
+
+Anomalies in neutron count behavior are identified using the **Isolation Forest algorithm**, a machine learning model designed for unsupervised outlier detection. This model is particularly effective for **high-dimensional and noisy time series data**, such as environmental sensor outputs.
+
+#### How It Works:
+- Isolation Forest works by randomly selecting features (e.g., `counts_avg`) and thresholds to construct **decision trees**.
+- The idea is that **anomalies are "few and different"** — meaning they are more easily isolated than typical data points.
+- Each point is assigned an **anomaly score** based on the average path length required to isolate it in the forest.
+- Points with short path lengths (i.e., isolated quickly) are likely to be **statistical outliers**.
+
+#### ⚛ Applied to Neutron Counts:
+- The model processes the average neutron count (`counts_avg`) over time.
+- It flags timestamps where the neutron count **suddenly drops or spikes** relative to the recent baseline distribution.
+- These events are marked with a **red ❌ on the graph**.
+""")
 
 # --- Graph: % Change ---
 if plot_mode in ["% Change (Smoothed)", "Both"]:
-    st.subheader("📈 Smoothed % Change Over Time")
+    st.subheader("Smoothed % Change Over Time")
     fig = px.line()
 
     for col in variables:
