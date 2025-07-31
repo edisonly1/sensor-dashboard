@@ -29,6 +29,7 @@ df = df.dropna(subset=['Timestamp'])
 
 for col in ['temperature', 'humidity', 'pressure', 'counts_0', 'counts_1']:
     df[col] = pd.to_numeric(df[col], errors='coerce')
+df['pressure'] = df['pressure'].interpolate()
 
 df = df.dropna(subset=['counts_0', 'counts_1'])
 df['counts_avg'] = (df['counts_0'] + df['counts_1']) / 2
