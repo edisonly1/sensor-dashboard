@@ -10,8 +10,8 @@ st.sidebar.header("Options")
 
 # Mapping of display names to file paths
 file_names = {
-    "May 13, 2025": "data/LiFo_05_13_2025__13_17.csv",
-    "June 1, 2025": "data/LiFo_06_20_2025__17_17.csv"
+    "May 13, 2025": "LiFo_05_13_2025__13_17.csv",
+    "June 1, 2025": "LiFo_06_20_2025__17_17.csv"
 }
 
 # Dropdown menu to select file
