@@ -158,7 +158,7 @@ st.dataframe(df[variables].describe())
 
 # --- Correlation Matrix Heatmap ---
 if show_corr:
-    st.subheader("📊 Correlation Matrix")
+    st.subheader("Correlation Matrix")
     corr = df[variables].corr()
     fig_corr, ax = plt.subplots(figsize=(6, 4))
     sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
