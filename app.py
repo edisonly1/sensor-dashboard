@@ -51,6 +51,10 @@ else:
     st.error("Please select a valid start and end date.")
     st.stop()
 
+# Variable selector
+all_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
+variables = st.sidebar.multiselect("Select variables to plot:", all_vars, default=['counts_avg'])
+
 threshold = st.sidebar.slider("Maximum count value to include:", min_value=0, max_value=150, value=100)
 window = st.sidebar.slider("Smoothing window (in points):", min_value=1, max_value=50, value=12)
 scale = st.sidebar.number_input("Scale factor for % Change", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
@@ -58,9 +62,6 @@ plot_mode = st.sidebar.selectbox("Graph Mode", ["% Change (Smoothed)", "Raw Coun
 detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
 show_corr = st.sidebar.checkbox("Show Correlation Matrix")
 
-# Variable selector
-all_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
-variables = st.sidebar.multiselect("Select variables to plot:", all_vars, default=['counts_avg'])
 
 # --- Filter & Smooth ---
 df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
