@@ -8,7 +8,7 @@ import plotly.express as px
 st.sidebar.header("Options")
 file_option = st.sidebar.selectbox(
     "Select data file:",
-    ["LiFo_05_13_2025__13_17.csv", "LiFo_06_01_2025__10_00.csv"]
+    ["LiFo_05_13_2025__13_17.csv", "LiFo_06_20_2025__17_17.csv"]
 )
 
 # --- Load data based on selection ---
