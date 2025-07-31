@@ -152,6 +152,7 @@ Anomalies in neutron count behavior are identified using the **Isolation Forest 
 - The model processes the average neutron count (`counts_avg`) over time.
 - It flags timestamps where the neutron count **suddenly drops or spikes** relative to the recent baseline distribution.
 - These events are marked with a **red ❌ on the graph**.
+"")
 
 
 # --- Plot Line Chart ---
