@@ -59,7 +59,7 @@ for var in variables:
     scale_factors[var] = st.sidebar.number_input(f"Scale factor for % Change – {var}", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
 
 threshold = st.sidebar.slider("Maximum count value to include:", min_value=0, max_value=150, value=100)
-window = st.sidebar.slider("Smoothing window (in points):", min_value=1, max_value=50, value=12)
+window = st.sidebar.slider("Smoothing window (in points):", min_value=1, max_value=300, value=12)
 plot_mode = st.sidebar.selectbox("Graph Mode", ["% Change (Smoothed)", "Raw Counts (Smoothed)", "Both"])
 detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
 show_corr = st.sidebar.checkbox("Show Correlation Matrix")
