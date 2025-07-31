@@ -182,6 +182,6 @@ st.dataframe(df[variables].describe())
 if show_corr:
     st.subheader("Correlation Matrix")
     corr = df[variables].corr()
-    fig_corr, ax = plt.subplots(figsize=(4, 4))
+    fig_corr, ax = plt.subplots(figsize=(5, 5))
     sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
     st.pyplot(fig_corr)
