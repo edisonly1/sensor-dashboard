@@ -27,12 +27,26 @@ else:
 df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
 df = df.dropna(subset=['Timestamp'])
 
+# Clean and standardize known columns
 for col in ['temperature', 'humidity', 'pressure', 'counts_0', 'counts_1']:
-    df[col] = pd.to_numeric(df[col], errors='coerce')
-df['pressure'] = df['pressure'].interpolate()
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+if 'pressure' in df.columns:
+    df['pressure'] = df['pressure'].interpolate()
 
+# Compute counts_avg
 df = df.dropna(subset=['counts_0', 'counts_1'])
 df['counts_avg'] = (df['counts_0'] + df['counts_1']) / 2
+
+# --- Detect Optional Soil Columns ---
+soil_cols = {
+    'Soil Moisture Value': 'soil_moisture_value',
+    'Soil Moisture (%)': 'soil_moisture_pct',
+    'Soil Temperature (°C)': 'soil_temp'
+}
+for old_col, new_col in soil_cols.items():
+    if old_col in df.columns:
+        df[new_col] = pd.to_numeric(df[old_col], errors='coerce')
 
 # --- Sidebar Filters ---
 min_date = df['Timestamp'].min().date()
@@ -50,10 +64,12 @@ else:
     st.stop()
 
 # --- Variable & Graph Settings ---
-all_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
+base_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
+extra_vars = [v for v in ['soil_moisture_value', 'soil_moisture_pct', 'soil_temp'] if v in df.columns]
+all_vars = base_vars + extra_vars
+
 variables = st.sidebar.multiselect("Select variables to plot:", all_vars, default=['counts_avg'])
 
-# Individual scale factor inputs
 scale_factors = {}
 for var in variables:
     scale_factors[var] = st.sidebar.number_input(f"Scale factor for % Change – {var}", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
@@ -81,6 +97,8 @@ else:
 # --- Process Variables ---
 plot_df = pd.DataFrame({'Timestamp': df['Timestamp']})
 for col in variables:
+    if col not in df.columns:
+        continue
     mean_val = df[col].mean()
     scale = scale_factors[col]
     df[f'{col}_pct'] = ((df[col] - mean_val) / mean_val * 100) * scale
@@ -91,28 +109,12 @@ for col in variables:
 
 # --- Dashboard Title ---
 st.title("Neutron Sensor Dashboard")
-st.markdown("Visualize neutron count & environment data trends, with anomaly detection and optional correlation analysis.")
+st.markdown("Visualize neutron count, environmental trends, and optional soil moisture/temperature data with anomaly detection.")
 
 if detect_anomalies:
     st.markdown("""
 ### Anomaly Detection Using Isolation Forest
-
-Anomalies in neutron count behavior are identified using the **Isolation Forest algorithm**, a machine learning model designed for unsupervised outlier detection. This model is particularly effective for high-dimensional and noisy time series data, such as environmental sensor outputs.
-
-#### How It Works:
-Unlike typical models that try to define “normal” behavior first, Isolation Forest takes the opposite approach:  
-it isolates data points to identify those that behave differently.
-- Isolation Forest works by isolating data points by randomly splitting the dataset.
-- The idea is that anomalies are more easily isolated than typical data points.
-- Each point is assigned an **anomaly score** based on the average path length required to isolate it in the forest.
-- Points with short path lengths (i.e. isolated quickly) are likely to be statistical outliers.
-- Each tree partitions the dataset recursively until every data point is isolated in its own leaf node.
-- Points that are far from others (i.e. isolated quickly with fewer splits) are flagged as **anomalies**.
-- Each point receives an anomaly score based on its average isolation depth across all trees.
-#### Applied to Neutron Counts:
-- The model processes the average neutron count (`counts_avg`) over time.
-- It flags timestamps where the neutron count suddenly drops or spikes relative to the recent baseline distribution.
-- These events are marked with a red ❌ on the raw counts graph (Only on the raw counts graph).
+Anomalies in neutron count behavior are identified using the **Isolation Forest algorithm**, a machine learning model designed for unsupervised outlier detection. It works by isolating rare observations quickly in tree structures, flagging statistical outliers. Only `counts_avg` anomalies are shown (red ❌) on the raw counts graph.
 """)
 
 # --- Plot: % Change Smoothed ---
@@ -120,12 +122,8 @@ if plot_mode in ["% Change (Smoothed)", "Both"]:
     st.subheader("Smoothed % Change Over Time")
     fig = px.line()
     for col in variables:
-        fig.add_scatter(
-            x=plot_df['Timestamp'],
-            y=plot_df[f'{col}_pct_smooth'],
-            mode='lines',
-            name=col.replace('_', ' ').title()
-        )
+        fig.add_scatter(x=plot_df['Timestamp'], y=plot_df[f'{col}_pct_smooth'],
+                        mode='lines', name=col.replace('_', ' ').title())
     fig.update_layout(title="Smoothed % Change (%)", xaxis_title="Time", yaxis_title="% Change")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -134,20 +132,12 @@ if plot_mode in ["Raw Counts (Smoothed)", "Both"]:
     st.subheader("Raw Counts (Smoothed)")
     fig2 = px.line()
     for col in variables:
-        fig2.add_scatter(
-            x=plot_df['Timestamp'],
-            y=plot_df[f'{col}_smooth'],
-            mode='lines',
-            name=col.replace('_', ' ').title()
-        )
+        fig2.add_scatter(x=plot_df['Timestamp'], y=plot_df[f'{col}_smooth'],
+                         mode='lines', name=col.replace('_', ' ').title())
     if detect_anomalies and 'counts_avg' in variables and not anomalies.empty:
-        fig2.add_scatter(
-            x=anomalies['Timestamp'],
-            y=anomalies['counts_avg'],
-            mode='markers',
-            marker=dict(color='red', size=8, symbol='x'),
-            name="Anomaly"
-        )
+        fig2.add_scatter(x=anomalies['Timestamp'], y=anomalies['counts_avg'],
+                         mode='markers', marker=dict(color='red', size=8, symbol='x'),
+                         name="Anomaly")
     fig2.update_layout(title="Smoothed Raw Values", xaxis_title="Time", yaxis_title="Raw Values")
     st.plotly_chart(fig2, use_container_width=True)
 
