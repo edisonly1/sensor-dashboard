@@ -100,11 +100,15 @@ if detect_anomalies:
 Anomalies in neutron count behavior are identified using the **Isolation Forest algorithm**, a machine learning model designed for unsupervised outlier detection. This model is particularly effective for high-dimensional and noisy time series data, such as environmental sensor outputs.
 
 #### How It Works:
-- Isolation Forest works by randomly selecting features (e.g., `counts_avg`) and thresholds to construct decision trees.
+Unlike typical models that try to define “normal” behavior first, Isolation Forest takes the opposite approach:  
+it isolates data points to identify those that behave differently.
+- Isolation Forest works by isolating data points by randomly splitting the dataset.
 - The idea is that anomalies are more easily isolated than typical data points.
 - Each point is assigned an **anomaly score** based on the average path length required to isolate it in the forest.
-- Points with short path lengths (i.e., isolated quickly) are likely to be statistical outliers.
-
+- Points with short path lengths (i.e. isolated quickly) are likely to be statistical outliers.
+- Each tree partitions the dataset recursively until every data point is isolated in its own leaf node.
+- Points that are far from others (i.e. isolated quickly with fewer splits) are flagged as **anomalies**.
+- Each point receives an anomaly score based on its average isolation depth across all trees.
 #### Applied to Neutron Counts:
 - The model processes the average neutron count (`counts_avg`) over time.
 - It flags timestamps where the neutron count suddenly drops or spikes relative to the recent baseline distribution.
