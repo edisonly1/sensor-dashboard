@@ -8,14 +8,14 @@ from datetime import timedelta
 
 st.set_page_config(page_title="Sensor Data Dashboard", layout="wide")
 
-# --- Sidebar: File Selection ---
+# Sidebar: File Selection
 st.sidebar.header("Options")
 file_option = st.sidebar.selectbox("Select built-in data file:", [
     "LiFo_05_13_2025__13_17.csv", "LiFo_06_20_2025__17_17.csv"
 ])
 uploaded = st.sidebar.file_uploader("Or upload your own CSV", type="csv")
 
-# --- Load Data ---
+# Load Data
 if uploaded:
     df = pd.read_csv(uploaded)
     st.success("Custom file uploaded and loaded!")
@@ -23,7 +23,7 @@ else:
     df = pd.read_csv(file_option)
     st.info(f"Loaded built-in file: `{file_option}`")
 
-# --- Preprocessing ---
+# Preprocessing 
 df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
 df = df.dropna(subset=['Timestamp'])
 
@@ -38,7 +38,7 @@ if 'pressure' in df.columns:
 df = df.dropna(subset=['counts_0', 'counts_1'])
 df['counts_avg'] = (df['counts_0'] + df['counts_1']) / 2
 
-# --- Detect Optional Soil Columns ---
+# Detect Optional Soil Columns
 soil_cols = {
     'Soil Moisture Value': 'soil_moisture_value',
     'Soil Moisture (%)': 'soil_moisture_pct',
@@ -48,7 +48,7 @@ for old_col, new_col in soil_cols.items():
     if old_col in df.columns:
         df[new_col] = pd.to_numeric(df[old_col], errors='coerce')
 
-# --- Sidebar Filters ---
+# Sidebar Filters
 min_date = df['Timestamp'].min().date()
 max_date = df['Timestamp'].max().date()
 if min_date == max_date:
@@ -63,7 +63,7 @@ else:
     st.error("Please select a valid start and end date.")
     st.stop()
 
-# --- Variable & Graph Settings ---
+# Variable & Graph Settings
 base_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
 extra_vars = [v for v in ['soil_moisture_value', 'soil_moisture_pct', 'soil_temp'] if v in df.columns]
 all_vars = base_vars + extra_vars
@@ -80,13 +80,13 @@ plot_mode = st.sidebar.selectbox("Graph Mode", ["% Change (Smoothed)", "Raw Coun
 detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
 show_corr = st.sidebar.checkbox("Show Correlation Matrix")
 
-# --- Filtering ---
+# Filtering
 df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
 if df.empty:
     st.warning("No data available for the selected filters.")
     st.stop()
 
-# --- Anomaly Detection ---
+# Anomaly Detection
 if detect_anomalies:
     model = IsolationForest(contamination=0.02, random_state=42)
     df['anomaly'] = model.fit_predict(df[['counts_avg']].dropna())
@@ -94,7 +94,7 @@ if detect_anomalies:
 else:
     anomalies = pd.DataFrame(columns=df.columns)
 
-# --- Process Variables ---
+# Process Variables
 plot_df = pd.DataFrame({'Timestamp': df['Timestamp']})
 for col in variables:
     if col not in df.columns:
@@ -107,7 +107,7 @@ for col in variables:
     plot_df[f'{col}_pct_smooth'] = df[f'{col}_pct_smooth']
     plot_df[f'{col}_smooth'] = df[f'{col}_smooth']
 
-# --- Dashboard Title ---
+# Dashboard Title
 st.title("Neutron Sensor Dashboard")
 st.markdown("Visualize neutron count, environmental trends, and optional soil moisture/temperature data with anomaly detection.")
 
@@ -134,7 +134,7 @@ it isolates data points to identify those that behave differently.
 """)
 
 
-# --- Plot: % Change Smoothed ---
+# Plot: % Change Smoothed
 if plot_mode in ["% Change (Smoothed)", "Both"]:
     st.subheader("Smoothed % Change Over Time")
     fig = px.line()
@@ -144,7 +144,7 @@ if plot_mode in ["% Change (Smoothed)", "Both"]:
     fig.update_layout(title="Smoothed % Change (%)", xaxis_title="Time", yaxis_title="% Change")
     st.plotly_chart(fig, use_container_width=True)
 
-# --- Plot: Raw Counts Smoothed ---
+# Plot: Raw Counts Smoothed
 if plot_mode in ["Raw Counts (Smoothed)", "Both"]:
     st.subheader("Raw Counts (Smoothed)")
     fig2 = px.line()
@@ -157,12 +157,12 @@ if plot_mode in ["Raw Counts (Smoothed)", "Both"]:
                          name="Anomaly")
     fig2.update_layout(title="Smoothed Raw Values", xaxis_title="Time", yaxis_title="Raw Values")
     st.plotly_chart(fig2, use_container_width=True)
-
-# --- Summary Stats ---
+    
+# Summary Stats
 st.subheader("Summary Statistics")
 st.dataframe(df[variables].describe())
 
-# --- Correlation Matrix ---
+# Correlation Matrix
 if show_corr:
     st.subheader("Correlation Matrix")
     corr_fig, ax = plt.subplots(figsize=(6, 4))
