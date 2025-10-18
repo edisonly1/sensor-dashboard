@@ -9,9 +9,9 @@ from sklearn.ensemble import IsolationForest
 from datetime import timedelta
 from pathlib import Path
 
-st.set_page_config(page_title="Sensor Data Dashboard", layout="wide")
+st.set_page_config(page_title="Neutron Sensor Dashboard (A.5)", layout="wide")
 
-# ====================== Helpers for A.5.3 / A.5.4 / CRNS→VWC ======================
+# ====================== Utilities (A.5.3 / A.5.4 / CRNS→VWC) ======================
 
 def absolute_humidity_gm3(temp_C, rh_pct):
     """Approx absolute humidity (g/m^3) from T (°C) and RH (%)."""
@@ -28,10 +28,10 @@ def apply_crns_corrections_avg(df, counts_avg_col="counts_avg",
                                P_col="pressure", T_col="temperature", RH_col="humidity",
                                nmdb_col=None, P_ref=None, beta_inv_kpa=0.735, alpha=0.0054, v_ref=0.0, N_ref=None):
     """
-    A.5.3: N = N' * fp * fv * fi   (applied to counts_avg scale for dashboard continuity)
-      fp = exp((P - P_ref)/(1/β))       with (1/β)=beta_inv_kpa (kPa)
-      fv = 1 + α*(v - v_ref)            v = absolute humidity (g/m^3)
-      fi = N_ref / NMDB(t)               (optional)
+    A.5.3: N = N' * fp * fv * fi  (applied on counts_avg scale so the rest of the app still works)
+      fp = exp((P - P_ref)/(1/β))   with (1/β)=beta_inv_kpa (kPa)
+      fv = 1 + α*(v - v_ref)        v = absolute humidity (g/m^3)
+      fi = N_ref / NMDB(t)          (optional)
     """
     out = df.copy()
     if counts_avg_col not in out.columns:
@@ -91,7 +91,7 @@ def estimate_cadence_minutes(ts):
         return 5.0
 
 def theta_total_from_counts(N, N0, a0=0.0808, a1=0.372, a2=0.115):
-    """Appendix shape function → total water equivalent (treated as volumetric-like)."""
+    """Appendix shape function → total water equivalent (treated as volumetric-like here)."""
     ratio = pd.to_numeric(N, errors="coerce") / max(float(N0), 1e-9)
     ratio = ratio.replace([0, np.inf, -np.inf], np.nan)
     return (a0 / ratio) - a1 - a2
@@ -106,39 +106,39 @@ def choose_timestamp_column(df):
             return cand
     return None
 
-# ====================== Sidebar: File Selection (kept) ======================
+# ====================== Sidebar: Data (kept) ======================
 
-st.sidebar.header("Options")
-file_option = st.sidebar.selectbox("Select built-in data file:", [
-    "LiFo_05_13_2025__13_17.csv", "LiFo_06_20_2025__17_17.csv"
-])
-uploaded = st.sidebar.file_uploader("Or upload your own CSV", type="csv")
+st.sidebar.header("Data")
+file_option = st.sidebar.selectbox(
+    "Select built-in data file:",
+    ["LiFo_05_13_2025__13_17.csv", "LiFo_06_20_2025__17_17.csv"]
+)
+uploaded = st.sidebar.file_uploader("Or upload your CSV", type=["csv"])
 
 # ====================== Load Data (kept) ======================
 
-if uploaded:
+if uploaded is not None:
     df = pd.read_csv(uploaded)
-    st.success("Custom file uploaded and loaded!")
+    st.success("Custom file uploaded and loaded.")
 else:
-    # allow reading built-in files from local dir if present
-    fpath = Path(file_option)
-    df = pd.read_csv(fpath if fpath.exists() else file_option)
+    path = Path(file_option)
+    df = pd.read_csv(path if path.exists() else file_option)
     st.info(f"Loaded built-in file: `{file_option}`")
 
-# ====================== Preprocessing (kept + tiny hardening) ======================
+# ====================== Preprocess (kept + hardened) ======================
 
 ts_col = choose_timestamp_column(df) or "Timestamp"
 df[ts_col] = pd.to_datetime(df[ts_col], errors='coerce')
-df = df.dropna(subset=[ts_col])
+df = df.dropna(subset=[ts_col]).sort_values(ts_col).reset_index(drop=True)
 
-# Clean and standardize known columns
+# Numeric casts
 for col in ['temperature', 'humidity', 'pressure', 'counts_0', 'counts_1', 'counts', 'counts_sum']:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 if 'pressure' in df.columns:
     df['pressure'] = df['pressure'].interpolate()
 
-# Compute counts_avg (kept) and counts_sum if not present
+# counts_avg / counts_sum
 if 'counts_0' in df.columns and 'counts_1' in df.columns:
     df = df.dropna(subset=['counts_0', 'counts_1'])
     df['counts_avg'] = (df['counts_0'] + df['counts_1']) / 2
@@ -149,15 +149,15 @@ elif 'counts_sum' in df.columns:
 elif 'counts' in df.columns:
     df['counts_avg'] = df['counts']
 
-# Detect Optional Soil Columns (kept)
-soil_cols = {
+# Optional in-situ columns
+soil_map = {
     'Soil Moisture Value': 'soil_moisture_value',
     'Soil Moisture (%)': 'soil_moisture_pct',
     'Soil Temperature (°C)': 'soil_temp'
 }
-for old_col, new_col in soil_cols.items():
-    if old_col in df.columns:
-        df[new_col] = pd.to_numeric(df[old_col], errors='coerce')
+for old, new in soil_map.items():
+    if old in df.columns:
+        df[new] = pd.to_numeric(df[old], errors='coerce')
 
 # ====================== Sidebar Filters (kept) ======================
 
@@ -167,47 +167,44 @@ if min_date == max_date:
     min_date -= timedelta(days=1)
     max_date += timedelta(days=1)
 
-date_range = st.sidebar.date_input("Select date range:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+date_range = st.sidebar.date_input("Date range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
-    df = df[(df[ts_col].dt.date >= start_date) & (df[ts_col].dt.date <= end_date)]
+    df = df[(df[ts_col].dt.date >= start_date) & (df[ts_col].dt.date <= end_date)].reset_index(drop=True)
 else:
     st.error("Please select a valid start and end date.")
     st.stop()
 
-# ====================== Variable & Graph Settings (kept, extended) ======================
+# ====================== Graph controls (kept) ======================
 
-base_vars = ['counts_avg', 'temperature', 'humidity', 'pressure']
-# will inject new series after corrections below
-extra_vars = [v for v in ['soil_moisture_value', 'soil_moisture_pct', 'soil_temp'] if v in df.columns]
-
-threshold = st.sidebar.slider("Maximum count value to include:", min_value=0, max_value=200, value=150)
+st.sidebar.markdown("### Smoothing")
 window = st.sidebar.slider("Smoothing window (in points):", min_value=1, max_value=300, value=12)
+
 plot_mode = st.sidebar.selectbox("Graph Mode", ["% Change (Smoothed)", "Raw Counts (Smoothed)", "Both"])
 detect_anomalies = st.sidebar.checkbox("Detect Anomalies in Counts Avg")
 show_corr = st.sidebar.checkbox("Show Correlation Matrix")
 
-# Filter outliers (kept)
-if 'counts_0' in df.columns and 'counts_1' in df.columns:
-    df = df[(df['counts_0'] <= threshold) & (df['counts_1'] <= threshold)]
-if df.empty:
-    st.warning("No data available for the selected filters.")
-    st.stop()
-
-# ====================== NEW: A.5.3 Corrections & A.5.4 SG Smoothing ======================
+# ====================== Appendix A.5 (new) ======================
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Appendix A.5 Options")
+
+# A.5.3 corrections
 apply_corr = st.sidebar.checkbox("Apply corrections (fp·fv·fi)", value=True)
 P_ref_default = float(df['pressure'].mean()) if 'pressure' in df.columns else 101.3
-P_ref = st.sidebar.number_input("P_ref (kPa)", value=P_ref_default, help="Pressure reference for fp")
+P_ref = st.sidebar.number_input("P_ref (kPa)", value=P_ref_default, help="Reference pressure for fp")
 beta_inv = st.sidebar.number_input("1/β (kPa)", value=0.735, help="Pressure factor parameter")
 alpha = st.sidebar.number_input("α (water-vapor factor)", value=0.0054)
 nmdb_choices = ["(none)"] + [c for c in df.columns if "nmdb" in c.lower()]
 nmdb_col = st.sidebar.selectbox("Cosmic intensity (NMDB) column", nmdb_choices, index=0)
 nmdb_col = None if nmdb_col == "(none)" else nmdb_col
 
-# Apply corrections to counts_avg scale for dashboard continuity
+# A.5.4 smoothing
+cad_min = estimate_cadence_minutes(df[ts_col])
+sg_hours = st.sidebar.slider("SG window (hours)", 3, 15, 11, help="If SciPy unavailable, uses centered rolling median")
+sg_points = max(3, int(np.ceil((sg_hours*60) / max(cad_min, 1e-6))))
+
+# Build working copy and apply corrections/smoothing
 work = df.copy()
 if apply_corr and 'counts_avg' in work.columns:
     work = apply_crns_corrections_avg(
@@ -218,81 +215,115 @@ if apply_corr and 'counts_avg' in work.columns:
 else:
     work['counts_corr'] = work.get('counts_avg', pd.Series(dtype=float))
 
-# A.5.4: SG window in HOURS → points via cadence
-cad_min = estimate_cadence_minutes(work[ts_col])
-sg_hours = st.sidebar.slider("SG window (hours)", 3, 15, 11, help="If SciPy not available, uses centered rolling median")
-sg_points = max(3, int(np.ceil((sg_hours*60) / max(cad_min, 1e-6))))
 work['counts_sg'] = smooth_series(work['counts_corr'] if apply_corr else work['counts_avg'], sg_points)
 
-# Extend variables with the new series
-if 'counts_corr' in work.columns:
-    base_vars = ['counts_avg', 'counts_corr', 'counts_sg', 'temperature', 'humidity', 'pressure']
-else:
-    base_vars = ['counts_avg', 'counts_sg', 'temperature', 'humidity', 'pressure']
+# ====================== NEW: Max handling (visual control) ======================
 
+st.sidebar.markdown("### Max handling")
+y_max = st.sidebar.number_input("Max value:", value=100.0, min_value=0.0, step=1.0)
+max_mode = st.sidebar.selectbox(
+    "Use this max to…",
+    ["Filter per-channel (current behavior)", "Filter plotted series", "Clamp plotted series", "Axis only"],
+    index=0
+)
+
+# If user wants the *old* behavior (per-channel filtering), do it here (before plotting)
+if max_mode == "Filter per-channel (current behavior)" and {"counts_0","counts_1"}.issubset(work.columns):
+    work = work[(work["counts_0"] <= y_max) & (work["counts_1"] <= y_max)].reset_index(drop=True)
+
+# ====================== Variables, scaling (kept, extended) ======================
+
+base_vars = [v for v in ["counts_avg", "counts_corr", "counts_sg", "temperature", "humidity", "pressure"] if v in work.columns]
+extra_vars = [v for v in ["soil_moisture_value", "soil_moisture_pct", "soil_temp"] if v in work.columns]
 all_vars = base_vars + extra_vars
-variables = st.sidebar.multiselect("Select variables to plot:", all_vars, default=['counts_avg'])
 
-# Scale factors (kept)
-scale_factors = {}
-for var in variables:
-    scale_factors[var] = st.sidebar.number_input(f"Scale factor for % Change – {var}", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
+variables = st.sidebar.multiselect("Variables to plot", all_vars, default=[base_vars[0]] if base_vars else [])
 
-# ====================== Anomaly Detection (kept) ======================
+scale_factors = {var: st.sidebar.number_input(f"Scale factor for % Change – {var}",
+                                              min_value=0.1, max_value=20.0, value=1.0, step=0.1)
+                 for var in variables}
 
-if detect_anomalies and 'counts_avg' in work.columns:
-    model = IsolationForest(contamination=0.02, random_state=42)
-    work['anomaly'] = model.fit_predict(work[['counts_avg']].dropna())
-    anomalies = work[work['anomaly'] == -1]
+# Pick which counts series drives general plots
+series_choice = st.radio("Counts series for general plots:",
+                         ["Raw (counts_avg)", "Corrected (counts_corr)", "Corrected + SG (counts_sg)"],
+                         index=2, horizontal=True)
+series_name = {"Raw (counts_avg)":"counts_avg", "Corrected (counts_corr)":"counts_corr",
+               "Corrected + SG (counts_sg)":"counts_sg"}[series_choice]
+series_name = series_name if series_name in work.columns else base_vars[0] if base_vars else None
+
+# Apply the other three max modes *after* series selection/corrections
+yaxis_range = None
+if series_name is not None:
+    s = work[series_name].astype(float)
+    if max_mode == "Filter plotted series":
+        keep = s.le(y_max) | s.isna()
+        work = work.loc[keep].reset_index(drop=True)
+    elif max_mode == "Clamp plotted series":
+        work[series_name] = np.minimum(s, y_max)
+    elif max_mode == "Axis only":
+        yaxis_range = [0, y_max]
+
+st.caption(f"Plotted series max (after handling): {work[series_name].max():.1f}" if series_name else "")
+
+# ====================== Anomaly detection (kept) ======================
+
+if detect_anomalies and series_name in work.columns:
+    arr = pd.to_numeric(work[series_name], errors="coerce").dropna()
+    if len(arr) > 20:
+        model = IsolationForest(contamination=0.02, random_state=42)
+        pred = model.fit_predict(arr.to_frame())
+        anomalies = work.loc[arr.index].copy()
+        anomalies["anomaly"] = pred
+        anomalies = anomalies[anomalies["anomaly"] == -1]
+    else:
+        anomalies = pd.DataFrame(columns=work.columns)
 else:
     anomalies = pd.DataFrame(columns=work.columns)
 
-# ====================== Process Variables (% change + raw smooth) (kept) ======================
+# ====================== % change & raw smoothed (kept) ======================
 
 plot_df = pd.DataFrame({ts_col: work[ts_col]})
 for col in variables:
-    if col not in work.columns:
+    if col not in work.columns: 
         continue
     mean_val = work[col].mean()
-    scale = scale_factors[col]
+    scale = scale_factors.get(col, 1.0)
     work[f'{col}_pct'] = ((work[col] - mean_val) / mean_val * 100) * scale
     work[f'{col}_pct_smooth'] = work[f'{col}_pct'].rolling(window=window).mean()
     work[f'{col}_smooth'] = work[col].rolling(window=window).mean()
     plot_df[f'{col}_pct_smooth'] = work[f'{col}_pct_smooth']
     plot_df[f'{col}_smooth'] = work[f'{col}_smooth']
 
-# ====================== Dashboard Title (kept) ======================
-
 st.title("Neutron Sensor Dashboard")
-st.markdown("Visualize neutron counts, environment, and soil data with anomaly detection — now with Appendix A.5 corrections, SG smoothing, and CRNS→VWC retrieval.")
-
-# ====================== Plots: % Change & Raw (kept) ======================
+st.markdown("Visualize counts, environment, and soil data with anomalies — now with Appendix A.5 corrections, SG smoothing, CRNS→VWC, and robust y-axis control.")
 
 if plot_mode in ["% Change (Smoothed)", "Both"]:
     st.subheader("Smoothed % Change Over Time")
     fig = px.line()
     for col in variables:
-        fig.add_scatter(x=plot_df[ts_col], y=plot_df[f'{col}_pct_smooth'],
-                        mode='lines', name=col.replace('_', ' ').title())
+        y = plot_df.get(f"{col}_pct_smooth")
+        if y is not None:
+            fig.add_scatter(x=plot_df[ts_col], y=y, mode='lines', name=col.replace('_',' ').title())
     fig.update_layout(title="Smoothed % Change (%)", xaxis_title="Time", yaxis_title="% Change")
     st.plotly_chart(fig, use_container_width=True)
 
 if plot_mode in ["Raw Counts (Smoothed)", "Both"]:
-    st.subheader("Raw Counts (Smoothed)")
+    st.subheader("Smoothed Raw Values")
     fig2 = px.line()
     for col in variables:
-        fig2.add_scatter(x=plot_df[ts_col], y=plot_df[f'{col}_smooth'],
-                         mode='lines', name=col.replace('_', ' ').title())
-    if detect_anomalies and 'counts_avg' in variables and not anomalies.empty:
-        fig2.add_scatter(x=anomalies[ts_col], y=anomalies['counts_avg'],
-                         mode='markers', marker=dict(color='red', size=8, symbol='x'),
-                         name="Anomaly")
-    fig2.update_layout(title="Smoothed Raw Values", xaxis_title="Time", yaxis_title="Raw Values")
+        y = plot_df.get(f"{col}_smooth")
+        if y is not None:
+            fig2.add_scatter(x=plot_df[ts_col], y=y, mode='lines', name=col.replace('_',' ').title())
+    if not anomalies.empty and series_name in variables:
+        fig2.add_scatter(x=anomalies[ts_col], y=anomalies[series_name],
+                         mode='markers', marker=dict(symbol='x', size=8), name="Anomaly")
+    fig2.update_layout(title="Smoothed Raw Values", xaxis_title="Time", yaxis_title="Raw Values",
+                       yaxis=dict(range=yaxis_range) if yaxis_range else dict(autorange=True))
     st.plotly_chart(fig2, use_container_width=True)
 
-# ====================== NEW: Corrections Overview Plot ======================
+# ====================== Corrections overview (new) ======================
 
-with st.expander("Appendix A.5 Corrections & Smoothing (Overview)"):
+with st.expander("Appendix A.5 Corrections & Smoothing (overview)"):
     figc = go.Figure()
     if 'counts_avg' in work.columns:
         figc.add_trace(go.Scatter(x=work[ts_col], y=work['counts_avg'], mode="lines", name="Counts (avg, raw)"))
@@ -300,10 +331,11 @@ with st.expander("Appendix A.5 Corrections & Smoothing (Overview)"):
         figc.add_trace(go.Scatter(x=work[ts_col], y=work['counts_corr'], mode="lines", name="Counts (avg, corrected)"))
     if 'counts_sg' in work.columns:
         figc.add_trace(go.Scatter(x=work[ts_col], y=work['counts_sg'], mode="lines", name="Counts (avg, corrected + SG)"))
-    figc.update_layout(height=420, xaxis_title="Time", yaxis_title="Counts (avg scale)")
+    figc.update_layout(height=420, xaxis_title="Time", yaxis_title="Counts (avg scale)",
+                       yaxis=dict(range=yaxis_range) if yaxis_range else dict(autorange=True))
     st.plotly_chart(figc, use_container_width=True)
 
-# ====================== NEW: CRNS → Soil Moisture (VWC) ======================
+# ====================== CRNS → VWC (new) ======================
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("CRNS → VWC (Shape Function)")
@@ -312,17 +344,14 @@ N0_default = float(work['counts_sg'].quantile(0.9)) if 'counts_sg' in work.colum
 N0_slider = st.sidebar.number_input("N0 (dry-soil count rate)", value=N0_default)
 porosity = st.sidebar.slider("Porosity cap (fraction)", 0.1, 0.8, 0.51)
 
-# Pick counts series to convert → VWC: corrected+SG if available, else counts_avg
 counts_for_vwc = work['counts_sg'] if 'counts_sg' in work.columns else work['counts_avg']
 
-# Auto-fit N0 if asked and we have in-situ series
+# pick first in-situ target if present
 in_situ_candidates = [c for c in ['soil_moisture_value', 'soil_moisture_pct'] if c in work.columns]
 N0_used = N0_slider
-if N0_mode == "Auto-fit to in-situ (if available)" and len(in_situ_candidates) > 0:
+if N0_mode == "Auto-fit to in-situ (if available)" and in_situ_candidates:
     tgt_col = in_situ_candidates[0]
-    tgt = work[tgt_col].copy()
-    if tgt_col.endswith("_pct"):
-        tgt = tgt / 100.0
+    tgt = work[tgt_col] if not tgt_col.endswith("_pct") else work[tgt_col]/100.0
     ok = counts_for_vwc.notna() & tgt.notna()
     if ok.sum() > 10:
         qs = np.linspace(0.7, 0.98, 12)
@@ -340,14 +369,13 @@ work['theta_total'] = theta_total_from_counts(counts_for_vwc, N0_used)
 work['vwc_crns'] = work['theta_total']
 work['vwc_crns_clipped'] = clip_by_porosity(work['vwc_crns'], porosity)
 
-# Time-series overlay with in-situ if present
-if len(in_situ_candidates) > 0:
+if in_situ_candidates:
     st.subheader("Soil Moisture (CRNS vs In-situ)")
     figv = go.Figure()
     figv.add_trace(go.Scatter(x=work[ts_col], y=work['vwc_crns_clipped'], mode="lines", name="VWC (CRNS, clipped)"))
     for col in in_situ_candidates:
-        y = work[col] if not col.endswith("_pct") else work[col]/100.0
-        figv.add_trace(go.Scatter(x=work[ts_col], y=y, mode="lines", name=f"{col} (as fraction)" if col.endswith("_pct") else col))
+        yy = work[col] if not col.endswith("_pct") else work[col]/100.0
+        figv.add_trace(go.Scatter(x=work[ts_col], y=yy, mode="lines", name=f"{col} (fraction)" if col.endswith("_pct") else col))
     figv.update_layout(height=380, xaxis_title="Time", yaxis_title="VWC (m³/m³)")
     st.plotly_chart(figv, use_container_width=True)
 
@@ -356,30 +384,27 @@ if len(in_situ_candidates) > 0:
     tgt = work[tgt_col] if not tgt_col.endswith("_pct") else work[tgt_col]/100.0
     ok2 = pd.concat([work['vwc_crns_clipped'], tgt], axis=1).dropna()
     if len(ok2) > 2:
-        m, b = np.polyfit(ok2['vwc_crns_clipped'], ok2.iloc[:,1], 1)
-        xs = np.linspace(ok2['vwc_crns_clipped'].min(), ok2['vwc_crns_clipped'].max(), 100)
+        m, b = np.polyfit(ok2.iloc[:,0], ok2.iloc[:,1], 1)
+        xs = np.linspace(ok2.iloc[:,0].min(), ok2.iloc[:,0].max(), 100)
         ys = m*xs + b
-        r = np.corrcoef(ok2['vwc_crns_clipped'], ok2.iloc[:,1])[0,1]
+        r = np.corrcoef(ok2.iloc[:,0], ok2.iloc[:,1])[0,1]
         figs = go.Figure()
-        figs.add_trace(go.Scatter(x=ok2['vwc_crns_clipped'], y=ok2.iloc[:,1], mode="markers", name="Samples"))
+        figs.add_trace(go.Scatter(x=ok2.iloc[:,0], y=ok2.iloc[:,1], mode="markers", name="Samples"))
         figs.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=f"Fit (R²={r**2:.2f})"))
         figs.update_layout(height=360, xaxis_title="VWC (CRNS, clipped)", yaxis_title=f"VWC ({tgt_col})")
         st.plotly_chart(figs, use_container_width=True)
 
-# ====================== Summary Stats (kept) ======================
+# ====================== Summary / Correlation (kept) ======================
 
 st.subheader("Summary Statistics")
-summary_cols = [c for c in variables if c in work.columns]
-st.dataframe(work[summary_cols].describe())
-
-# ====================== Correlation Matrix (kept) ======================
+if variables:
+    st.dataframe(work[[v for v in variables if v in work.columns]].describe())
 
 if show_corr:
     st.subheader("Correlation Matrix")
-    corr_fig, ax = plt.subplots(figsize=(6, 4))
-    # use only selected variables that exist
     sel = [c for c in variables if c in work.columns]
     if len(sel) >= 2:
+        corr_fig, ax = plt.subplots(figsize=(6, 4))
         sns.heatmap(work[sel].corr(), annot=True, cmap="coolwarm", fmt=".2f", vmin=-1, vmax=1, ax=ax)
         st.pyplot(corr_fig)
     else:
@@ -388,7 +413,12 @@ if show_corr:
 # ====================== Download processed data (new) ======================
 
 st.subheader("Download Processed Data")
-out_cols = list(dict.fromkeys([ts_col] + all_vars + [f"{v}_pct_smooth" for v in variables] + [f"{v}_smooth" for v in variables]
-                              + ["counts_corr", "counts_sg", "theta_total", "vwc_crns", "vwc_crns_clipped"]))
-csv_bytes = work[out_cols].to_csv(index=False).encode("utf-8", errors="ignore")
-st.download_button("Download CSV (with corrections, smoothing, VWC)", data=csv_bytes, file_name="processed_crns.csv", mime="text/csv")
+out_cols = list(dict.fromkeys(
+    [ts_col] + all_vars +
+    [f"{v}_pct_smooth" for v in variables] +
+    [f"{v}_smooth" for v in variables] +
+    ["counts_corr", "counts_sg", "theta_total", "vwc_crns", "vwc_crns_clipped"]
+))
+csv_bytes = work[[c for c in out_cols if c in work.columns]].to_csv(index=False).encode("utf-8", errors="ignore")
+st.download_button("Download CSV (with corrections, smoothing, VWC)", data=csv_bytes,
+                   file_name="processed_crns.csv", mime="text/csv")
