@@ -8,6 +8,7 @@ import seaborn as sns
 from sklearn.ensemble import IsolationForest
 from datetime import timedelta
 from pathlib import Path
+from statsmodels.tsa.seasonal import STL
 
 st.set_page_config(page_title="Neutron Sensor Dashboard (A.5)", layout="wide")
 
