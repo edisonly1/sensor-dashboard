@@ -4,3 +4,5 @@ plotly
 matplotlib
 seaborn
 scikit-learn
+scipy
+statsmodels>=0.14
