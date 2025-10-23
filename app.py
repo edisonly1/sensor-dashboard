@@ -422,3 +422,126 @@ out_cols = list(dict.fromkeys(
 csv_bytes = work[[c for c in out_cols if c in work.columns]].to_csv(index=False).encode("utf-8", errors="ignore")
 st.download_button("Download CSV (with corrections, smoothing, VWC)", data=csv_bytes,
                    file_name="processed_crns.csv", mime="text/csv")
+
+
+
+
+
+# === Seasonal analysis
+import numpy as np, pandas as pd
+import plotly.graph_objects as go
+from statsmodels.tsa.seasonal import STL
+
+with st.expander("Seasonal analysis (trend, climatology, lags)"):
+    # 1) Choose base series
+    base_series_name = st.selectbox(
+        "Series to analyze seasonally",
+        [c for c in ["counts_sg","counts_corr","counts_avg","counts_sum"] if c in work.columns],
+        index=0
+    )
+    y = pd.to_numeric(work[base_series_name], errors="coerce")
+    t = pd.to_datetime(work[ts_col])
+
+    # Mask the known data gap to avoid step artifacts (you can tune dates)
+    # If you have a mask vector already, use it instead of this example.
+    gap_mask = (t >= pd.Timestamp("2025-08-18")) & (t < pd.Timestamp("2025-08-30"))
+    y_gapfree = y.mask(gap_mask)
+
+    # 2) STL decomposition at diurnal period
+    # Downsample to 15 min before STL to speed up (optional)
+    df_stl = pd.DataFrame({"y": y_gapfree.values}, index=t).dropna()
+    df_15 = df_stl.resample("15min").median()
+    period_pts = int((24*60)/15)  # 96 for 15-min
+    stl = STL(df_15["y"], period=period_pts, robust=True)
+    res = stl.fit()
+
+    # Plot: trend vs met variables
+    figT = go.Figure()
+    figT.add_scatter(x=df_15.index, y=res.trend, mode="lines", name=f"{base_series_name} trend (STL)")
+    if "humidity" in work.columns:
+        # smooth humidity to the same 15-min grid for comparison
+        H = pd.Series(pd.to_numeric(work["humidity"], errors="coerce").values, index=t).resample("15min").median()
+        figT.add_scatter(x=H.index, y=(H - H.median()), mode="lines", name="Humidity (centered)")
+    if ("soil_moisture_value" in work.columns) or ("soil_moisture_pct" in work.columns):
+        if "soil_moisture_value" in work.columns:
+            SM = pd.Series(pd.to_numeric(work["soil_moisture_value"], errors="coerce").values, index=t).resample("15min").median()
+        else:
+            SM = pd.Series(pd.to_numeric(work["soil_moisture_pct"], errors="coerce").values, index=t).resample("15min").median()/100.0
+        figT.add_scatter(x=SM.index, y=(SM - SM.median()), mode="lines", name="Soil moisture (centered)")
+    figT.update_layout(height=320, title="STL trend vs met variables (centered)", xaxis_title="Time", yaxis_title="Value")
+    st.plotly_chart(figT, use_container_width=True)
+
+    # 3) Day-of-year (DOY) climatology of the smoothed counts
+    df_seas = pd.DataFrame({"y": y.values, "t": t}).dropna()
+    df_seas["doy"] = df_seas["t"].dt.dayofyear
+    clim = df_seas.groupby("doy")["y"].agg(["median","mean","std","count"]).reset_index()
+    # Current season curve (bin to DOY)
+    figC = go.Figure()
+    figC.add_scatter(x=clim["doy"], y=clim["median"], mode="lines", name="Climatology (median)")
+    figC.add_scatter(x=clim["doy"], y=clim["median"]+clim["std"], mode="lines", name="+1σ", line=dict(dash="dot"))
+    figC.add_scatter(x=clim["doy"], y=clim["median"]-clim["std"], mode="lines", name="-1σ", line=dict(dash="dot"))
+    # Overlay the actual (smoothed) season as DOY
+    figC.add_scatter(x=df_seas["doy"], y=df_seas["y"], mode="markers", name="This season (points)", opacity=0.25, marker=dict(size=3))
+    figC.update_layout(height=300, title=f"{base_series_name}: DOY climatology ±1σ", xaxis_title="Day of year", yaxis_title=base_series_name)
+    st.plotly_chart(figC, use_container_width=True)
+
+    # 4) Seasonal segmentation stats (pre-rain / wet / dry-down)
+    bins = st.multiselect("Season bins (months)", ["May-Jun (pre)","Jul-Aug (wet)","Sep (dry)"], default=["May-Jun (pre)","Jul-Aug (wet)","Sep (dry)"])
+    def season_label(dt):
+        m = dt.month
+        if m in [5,6]: return "May-Jun (pre)"
+        if m in [7,8]: return "Jul-Aug (wet)"
+        if m in [9]:   return "Sep (dry)"
+        return "Other"
+    seg = df_seas.copy()
+    seg["season"] = seg["t"].apply(season_label)
+    # summarize
+    table = seg.groupby("season")["y"].agg(["median","mean","std","count"]).reset_index()
+    st.dataframe(table[table["season"].isin(bins)])
+
+    # 5) Lag analysis per season: counts vs humidity and/or soil moisture
+    max_lag_hours = st.slider("Max lag for cross-correlation (hours)", 0, 72, 48)
+    step = 6  # 6 steps/hour for 10-min; we’ll reindex to 10-min grid for speed/robustness
+    grid = df_stl.index.floor("10min").unique()
+    # Build 10-min aligned series
+    Y10 = pd.Series(y.values, index=t).groupby(pd.Grouper(freq="10min")).median()
+    pairs = []
+    if "humidity" in work.columns:
+        H10 = pd.Series(pd.to_numeric(work["humidity"], errors="coerce").values, index=t).groupby(pd.Grouper(freq="10min")).median()
+        pairs.append(("Humidity", H10))
+    if ("soil_moisture_value" in work.columns) or ("soil_moisture_pct" in work.columns):
+        if "soil_moisture_value" in work.columns:
+            S10 = pd.Series(pd.to_numeric(work["soil_moisture_value"], errors="coerce").values, index=t).groupby(pd.Grouper(freq="10min")).median()
+        else:
+            S10 = (pd.Series(pd.to_numeric(work["soil_moisture_pct"], errors="coerce").values, index=t)
+                   .groupby(pd.Grouper(freq="10min")).median()/100.0)
+        pairs.append(("Soil moisture", S10))
+
+    for name, X10 in pairs:
+        # limit to common window
+        jj = Y10.index.intersection(X10.index)
+        yy = Y10.loc[jj].astype(float)
+        xx = X10.loc[jj].astype(float)
+        # remove mean (anomalies)
+        yy = yy - yy.mean(); xx = xx - xx.mean()
+        # compute lagged correlations
+        lags = np.arange(-max_lag_hours*6, max_lag_hours*6+1)  # 10-min steps
+        cc = []
+        for L in lags:
+            if L < 0:
+                c = np.corrcoef(yy[-L:].values, xx[:L if L!=0 else None].values)[0,1]
+            elif L > 0:
+                c = np.corrcoef(yy[:-L].values, xx[L:].values)[0,1]
+            else:
+                c = np.corrcoef(yy.values, xx.values)[0,1]
+            cc.append(c)
+        lhr = lags/6.0
+        figLag = go.Figure()
+        figLag.add_scatter(x=lhr, y=cc, mode="lines", name=f"r({base_series_name}, {name})")
+        # annotate best lag
+        if len(cc) > 0 and np.isfinite(cc).any():
+            i = int(np.nanargmax(np.abs(cc)))
+            figLag.add_vline(x=lhr[i], line_dash="dot")
+            figLag.update_layout(title=f"Lag correlation: best |r|={cc[i]:.2f} at {lhr[i]:.1f} h",
+                                 xaxis_title="Lag (hours, +means X leads)", yaxis_title="Correlation r")
+        st.plotly_chart(figLag, use_container_width=True)
